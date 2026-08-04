@@ -462,6 +462,29 @@
     .timeline-spacer, .tl-label{ width:96px; font-size:11.5px; }
     .thoriz-label-spacer, .thoriz-day-label{ width:52px; font-size:10.5px; }
     table.summary td.total-cell{ min-width:110px; }
+
+    /* ---- Lista de tarjetas del día (sustituye a la línea de tiempo horizontal, difícil
+       de tocar con precisión en una pantalla pequeña) ---- */
+    .day-list-mobile{ display:flex; flex-direction:column; gap:8px; }
+    .day-card{
+      border:1px solid var(--border); border-radius:10px; padding:10px 12px; background:var(--surface);
+    }
+    .day-card-head{
+      display:flex; align-items:center; gap:6px; font-weight:600; font-size:13.5px;
+      margin-bottom:8px; cursor:pointer;
+    }
+    .day-card-turnos{ display:flex; flex-direction:column; gap:6px; }
+    .day-card-turno{
+      display:flex; justify-content:space-between; align-items:center; gap:8px;
+      padding:11px 12px; border-radius:8px; font-weight:700; font-size:14.5px; cursor:pointer;
+      border-left:4px solid transparent; color:var(--text);
+    }
+    .day-card-turno.descanso-corto{ outline:2px dashed var(--warning); outline-offset:-2px; }
+    .day-card-turno-horas{ font-weight:400; color:var(--muted); font-size:12px; }
+    .day-card-ausencia{
+      padding:11px 12px; border-radius:8px; font-weight:600; font-size:13.5px; color:#fff; cursor:pointer;
+    }
+    .day-card-libre{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
   }
 
   @media print{
@@ -2451,42 +2474,54 @@ function buildDayBlock(dia){
   headerRow.appendChild(stats);
   block.appendChild(headerRow);
 
+  // En pantallas de móvil, la línea de tiempo horizontal es difícil de tocar con precisión
+  // (por pequeña que se deje) — se sustituye por una lista vertical de tarjetas, una por
+  // empleado, con sus turnos como chips grandes que se tocan para editar. El ordenador sigue
+  // viendo la línea de tiempo de siempre, sin ningún cambio.
+  const esMovil = window.matchMedia('(max-width: 640px)').matches;
+
   if(turnosDelDia.length===0 && numAusentes===0){
     const aviso = document.createElement('div');
     aviso.className = 'hint';
     aviso.style.cssText = 'margin:0 0 12px 0; padding:10px 12px; background:var(--surface-hover); border-radius:8px;';
-    aviso.textContent = 'Todavía no hay ningún turno guardado para este día. Arrastra sobre la franja horaria de abajo para crear uno, o usa "+ turno".';
+    aviso.textContent = esMovil
+      ? 'Todavía no hay ningún turno guardado para este día. Usa "+ turno" en cualquier tarjeta para crear uno.'
+      : 'Todavía no hay ningún turno guardado para este día. Arrastra sobre la franja horaria de abajo para crear uno, o usa "+ turno".';
     block.appendChild(aviso);
   }
 
-  const scale = document.createElement('div');
-  scale.className = 'timeline-scale';
-  const spacer = document.createElement('div');
-  spacer.className = 'timeline-spacer';
-  const ticksRow = document.createElement('div');
-  ticksRow.className = 'timeline-ticks';
-  ticks.forEach(m=>{
-    const pct = (m-startMin)/totalMin*100;
-    const tick = document.createElement('div');
-    tick.className = 'tick' + (m===startMin ? ' edge-start' : m===endMin ? ' edge-end' : '');
-    tick.style.left = pct+'%';
-    tick.textContent = minutesToLabel(m);
-    ticksRow.appendChild(tick);
-  });
   const now = new Date();
   const nowMin = isToday ? (now.getHours()*60+now.getMinutes()) : null;
-  if(isToday && nowMin!=null && nowMin>=startMin && nowMin<=endMin){
-    const nowTick = document.createElement('div');
-    nowTick.className = 'now-tick';
-    nowTick.style.left = ((nowMin-startMin)/totalMin*100)+'%';
-    nowTick.textContent = 'ahora';
-    ticksRow.appendChild(nowTick);
+
+  if(!esMovil){
+    const scale = document.createElement('div');
+    scale.className = 'timeline-scale';
+    const spacer = document.createElement('div');
+    spacer.className = 'timeline-spacer';
+    const ticksRow = document.createElement('div');
+    ticksRow.className = 'timeline-ticks';
+    ticks.forEach(m=>{
+      const pct = (m-startMin)/totalMin*100;
+      const tick = document.createElement('div');
+      tick.className = 'tick' + (m===startMin ? ' edge-start' : m===endMin ? ' edge-end' : '');
+      tick.style.left = pct+'%';
+      tick.textContent = minutesToLabel(m);
+      ticksRow.appendChild(tick);
+    });
+    if(isToday && nowMin!=null && nowMin>=startMin && nowMin<=endMin){
+      const nowTick = document.createElement('div');
+      nowTick.className = 'now-tick';
+      nowTick.style.left = ((nowMin-startMin)/totalMin*100)+'%';
+      nowTick.textContent = 'ahora';
+      ticksRow.appendChild(nowTick);
+    }
+    scale.appendChild(spacer);
+    scale.appendChild(ticksRow);
+    block.appendChild(scale);
   }
-  scale.appendChild(spacer);
-  scale.appendChild(ticksRow);
-  block.appendChild(scale);
 
   const body = document.createElement('div');
+  body.className = esMovil ? 'day-list-mobile' : '';
 
   const empConTurno = [];
   const empAusente = [];
@@ -2501,33 +2536,102 @@ function buildDayBlock(dia){
   });
   empConTurno.sort((a,b)=> toMinutes(a.turnos[0].inicio) - toMinutes(b.turnos[0].inicio));
 
-  empConTurno.forEach(({emp,turnos,ausencia})=>{
-    const descansoMap = turnosConDescansoInsuficiente(emp.id, datos.semanaActual);
-    body.appendChild(buildTimelineRow(emp, dia, turnos, startMin, totalMin, ticks, nowMin, ausencia, descansoMap));
-  });
-
-  if(empAusente.length){
-    const divider = document.createElement('div');
-    divider.className = 'off-divider';
-    divider.textContent = 'De vacaciones, de baja o con permiso';
-    body.appendChild(divider);
+  if(esMovil){
+    empConTurno.forEach(({emp,turnos,ausencia})=>{
+      const descansoMap = turnosConDescansoInsuficiente(emp.id, datos.semanaActual);
+      body.appendChild(buildDayCardMobile(emp, dia, turnos, ausencia, descansoMap));
+    });
     empAusente.forEach(({emp,ausencia})=>{
-      body.appendChild(buildAbsenceRow(emp, dia, ausencia));
+      body.appendChild(buildDayCardMobile(emp, dia, [], ausencia, new Map()));
     });
-  }
-
-  if(empLibre.length){
-    const divider = document.createElement('div');
-    divider.className = 'off-divider';
-    divider.textContent = 'Sin turno este día';
-    body.appendChild(divider);
     empLibre.forEach(emp=>{
-      body.appendChild(buildTimelineRow(emp, dia, [], startMin, totalMin, ticks, nowMin, null));
+      body.appendChild(buildDayCardMobile(emp, dia, [], null, new Map()));
     });
+  } else {
+    empConTurno.forEach(({emp,turnos,ausencia})=>{
+      const descansoMap = turnosConDescansoInsuficiente(emp.id, datos.semanaActual);
+      body.appendChild(buildTimelineRow(emp, dia, turnos, startMin, totalMin, ticks, nowMin, ausencia, descansoMap));
+    });
+
+    if(empAusente.length){
+      const divider = document.createElement('div');
+      divider.className = 'off-divider';
+      divider.textContent = 'De vacaciones, de baja o con permiso';
+      body.appendChild(divider);
+      empAusente.forEach(({emp,ausencia})=>{
+        body.appendChild(buildAbsenceRow(emp, dia, ausencia));
+      });
+    }
+
+    if(empLibre.length){
+      const divider = document.createElement('div');
+      divider.className = 'off-divider';
+      divider.textContent = 'Sin turno este día';
+      body.appendChild(divider);
+      empLibre.forEach(emp=>{
+        body.appendChild(buildTimelineRow(emp, dia, [], startMin, totalMin, ticks, nowMin, null));
+      });
+    }
   }
 
   block.appendChild(body);
   return block;
+}
+
+// Tarjeta de un empleado para la vista de lista en móvil (alternativa a buildTimelineRow /
+// buildAbsenceRow cuando la línea de tiempo horizontal no cabe cómoda para tocar con el dedo).
+function buildDayCardMobile(emp, dia, turnos, ausencia, descansoMap){
+  const card = document.createElement('div');
+  card.className = 'day-card';
+
+  const head = document.createElement('div');
+  head.className = 'day-card-head';
+  head.title = 'Ver ficha de ' + emp.nombre;
+  head.innerHTML = `${avatarHtml(emp, 20)}${emp.nombre}${rolBadgeHtml(emp)}`;
+  head.onclick = ()=> abrirFichaEmpleado(emp.id);
+  card.appendChild(head);
+
+  if(turnos.length>0){
+    const cont = document.createElement('div');
+    cont.className = 'day-card-turnos';
+    turnos.forEach(t=>{
+      const gapDescanso = descansoMap.get(t.id);
+      const chip = document.createElement('div');
+      chip.className = 'day-card-turno' + (gapDescanso!==undefined ? ' descanso-corto' : '');
+      chip.style.background = hexToRgba(emp.color, 0.18);
+      chip.style.borderLeftColor = emp.color;
+      chip.title = gapDescanso!==undefined
+        ? `⚠ Descanso de solo ${fmtHoras(gapDescanso)} antes de este turno (mínimo legal: ${DESCANSO_MINIMO_HORAS}h, Art. 34.3 ET)`
+        : 'Toca para editar este turno';
+      chip.innerHTML = `<span>${gapDescanso!==undefined ? '⚠ ' : ''}${t.inicio}–${t.fin}</span><span class="day-card-turno-horas">${fmtHoras(minutesToHoras(toMinutes(t.fin)-toMinutes(t.inicio)))}</span>`;
+      chip.onclick = ()=> openShiftModal(t.id);
+      cont.appendChild(chip);
+    });
+    card.appendChild(cont);
+  } else if(ausencia){
+    const tipo = TIPOS_AUSENCIA[ausencia.tipo];
+    const bar = document.createElement('div');
+    bar.className = 'day-card-ausencia';
+    bar.style.background = tipo.color;
+    bar.title = ausencia.nota ? `${tipo.label}: ${ausencia.nota}` : tipo.label;
+    bar.textContent = `${tipo.icon} ${tipo.label}`;
+    bar.onclick = ()=> openAusenciaModal(ausencia.id);
+    card.appendChild(bar);
+  } else {
+    const row = document.createElement('div');
+    row.className = 'day-card-libre';
+    const texto = document.createElement('span');
+    texto.className = 'hint';
+    texto.style.margin = '0';
+    texto.textContent = 'Sin turno este día';
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ turno';
+    addBtn.onclick = ()=> openShiftModal(null, emp.id, dia);
+    row.appendChild(texto);
+    row.appendChild(addBtn);
+    card.appendChild(row);
+  }
+  return card;
 }
 
 function buildTimelineRow(emp, dia, turnos, startMin, totalMin, ticks, nowMin, ausenciaConflicto, descansoMap){
