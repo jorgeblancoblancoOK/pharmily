@@ -560,6 +560,7 @@
       <button id="nextDay" title="Día siguiente">▶</button>
       <button id="todayWeek">Hoy</button>
     </div>
+    <div class="hint" id="librasSabadoLine" style="margin-top:8px;"></div>
   </div>
 
   <!-- Día por día -->
@@ -1796,8 +1797,12 @@ function renderWeekLabel(){
   // cuentan como si fuera su sábado libre de la rotación normal.
   const empIdsTrabajandoSabado = new Set(week.turnos.filter(t=>t.dia===5).map(t=>t.empleadoId));
   const libranSabado = datos.empleados.filter(e=> !empIdsTrabajandoSabado.has(e.id) && !ausenciaDeEmpleado(e.id, sabadoIso));
-  const sufijo = libranSabado.length>0 ? ` · Libran el sábado: ${libranSabado.map(e=>e.nombre).join(', ')}` : '';
-  document.getElementById('weekLabel').textContent = fmtDateEs(start) + ' — ' + fmtDateEs(end) + sufijo;
+  document.getElementById('weekLabel').textContent = fmtDateEs(start) + ' — ' + fmtDateEs(end);
+  // Va en su propia línea (no dentro de weekLabel) para no empujar los botones ◀ ▶ ni "Hoy"
+  // cuando la lista de nombres es larga.
+  document.getElementById('librasSabadoLine').textContent = libranSabado.length>0
+    ? `Libran el sábado: ${libranSabado.map(e=>e.nombre).join(', ')}`
+    : '';
   const dateIso = addDaysIso(datos.semanaActual, selectedDia);
   document.getElementById('dayLabel').textContent = `${DIAS[selectedDia]} · ${fmtDateEs(dateIso)}`;
 }
