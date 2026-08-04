@@ -130,7 +130,17 @@
   button.primary:hover{background:var(--primary-dark); border-color:var(--primary-dark);}
   button.danger{background:var(--surface); border-color:var(--danger); color:var(--danger);}
   button.danger:hover{background:var(--danger); color:#fff;}
-  .week-label{font-weight:600; min-width:230px; text-align:center;}
+  .week-label{font-weight:600; text-align:center;}
+  /* Filas de navegación de semana/día: grid de 3 (o 4) columnas con los laterales de ancho
+     fijo ("auto") y el centro flexible ("1fr") — así el texto del centro (fecha, "Libran el
+     sábado"...) puede crecer o encoger sin desplazar nunca los botones de los lados, por muy
+     largo que se ponga. Antes eran un .row flexible normal y el texto largo empujaba/​
+     desordenaba los botones. */
+  .nav-row-semana{ display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:10px; }
+  .nav-row-dia{ display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:10px; margin-top:10px; }
+  .nav-center{ min-width:0; text-align:center; }
+  .nav-center .hint{ margin:2px 0 0 0; }
+  .nav-arrow{ flex:none; }
   .emp-list{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;}
   .emp-pill{
     display:flex; align-items:center; gap:6px; padding:4px 8px; border-radius:20px;
@@ -239,7 +249,6 @@
 
   .day-header-row{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; flex-wrap:wrap; gap:6px;}
   .day-header-row h2{margin:0;}
-  .nav-divider{width:1px; height:22px; background:var(--border); flex:none;}
   .today-badge{background:var(--primary); color:#fff; font-size:10px; padding:1px 6px; border-radius:10px; margin-left:6px; vertical-align:middle;}
   .day-stats{color:var(--text2); font-size:12.5px;}
 
@@ -468,6 +477,10 @@
     padding:11px 12px; border-radius:8px; font-weight:600; font-size:13.5px; color:#fff; cursor:pointer;
   }
   .day-card-libre{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .thoriz-single-day{
+    border:1px solid var(--border); border-radius:10px; padding:10px; background:var(--bg);
+    overflow-x:auto;
+  }
 
   /* ---- Pantallas de móvil ---- */
   @media (max-width: 640px){
@@ -489,10 +502,13 @@
     table.summary td.total-cell{ min-width:110px; }
   }
 
-  /* En horizontal (móvil táctil hasta 900px), el modal de editar/crear turno también debería
-     caber sin desbordar — usa el mismo límite que en vertical. */
+  /* En horizontal (móvil táctil hasta 900px): el modal de editar/crear turno también debería
+     caber sin desbordar (mismo límite que en vertical), y las barras compactas con solape
+     usan columnas de etiqueta más estrechas que en escritorio para dejar más sitio a las
+     propias barras — igual que ya pasa en "Semana completa" en vertical. */
   @media (max-width: 900px) and (pointer: coarse){
     .modal{ width:min(340px, 92vw); }
+    .thoriz-label-spacer, .thoriz-day-label{ width:58px; font-size:11px; }
   }
 
   @media print{
@@ -550,17 +566,22 @@
   <div class="panel resumen-hoy no-print" id="resumenHoy"></div>
 
   <div class="panel no-print">
-    <div class="row">
-      <button id="prevWeek" title="Semana anterior">◀</button>
-      <div class="week-label" id="weekLabel">-</div>
-      <button id="nextWeek" title="Semana siguiente">▶</button>
-      <span class="nav-divider"></span>
-      <button id="prevDay" title="Día anterior">◀</button>
-      <div class="week-label" id="dayLabel">-</div>
-      <button id="nextDay" title="Día siguiente">▶</button>
+    <div class="nav-row-semana">
+      <button id="prevWeek" class="nav-arrow" title="Semana anterior">◀</button>
+      <div class="nav-center">
+        <div class="week-label" id="weekLabel">-</div>
+        <div class="hint" id="librasSabadoLine"></div>
+      </div>
+      <button id="nextWeek" class="nav-arrow" title="Semana siguiente">▶</button>
+    </div>
+    <div class="nav-row-dia">
+      <button id="prevDay" class="nav-arrow" title="Día anterior">◀</button>
+      <div class="nav-center">
+        <div class="week-label" id="dayLabel">-</div>
+      </div>
+      <button id="nextDay" class="nav-arrow" title="Día siguiente">▶</button>
       <button id="todayWeek">Hoy</button>
     </div>
-    <div class="hint" id="librasSabadoLine" style="margin-top:8px;"></div>
   </div>
 
   <!-- Día por día -->
@@ -2294,13 +2315,126 @@ function buildAxisRow(startMin, endMin, totalMin, ticks){
 // qué horas están cubiertas. Los turnos son bloques de color — sin sitio para el nombre
 // dentro del bloque, por eso hay una leyenda de colores fija al lado. `conEtiqueta` añade
 // el rango de fechas encima, útil cuando se muestran varias semanas seguidas.
-function buildCompactWeekRow(weekIso, conEtiqueta){
+// Construye UNA fila-día del estilo compacto "Semana completa" (varios empleados en pistas
+// paralelas sobre el mismo eje horario, para poder ver el solape entre ellos de un vistazo).
+// Extraída como pieza reutilizable: la usa buildCompactWeekRow() para sus 6 días seguidos, y
+// también la vista de móvil en horizontal de "Horario día por día" (buildDayThorizSingle) para
+// un solo día — mismo código, mismo aspecto, en vez de mantener dos versiones por separado.
+function buildThorizDayRow(weekIso, dia, startMin, endMin, totalMin, ticks, descansoCache){
+  descansoCache = descansoCache || {};
   const week = getWeek(weekIso);
   const hoyIso = toIsoLocal(new Date());
-  const {startMin, endMin, ticks} = getTicks();
-  const totalMin = Math.max(1, endMin - startMin);
   const now = new Date();
   const nowMin = now.getHours()*60 + now.getMinutes();
+  const dateIso = addDaysIso(weekIso, dia);
+  const isToday = dateIso===hoyIso;
+  const row = document.createElement('div');
+  row.className = 'thoriz-day-row' + (isToday ? ' is-today' : '');
+
+  const label = document.createElement('div');
+  label.className = 'thoriz-day-label';
+  label.innerHTML = `<span>${DIAS[dia].slice(0,3)} ${new Date(dateIso+'T00:00:00').getDate()}</span>`;
+  const addBtn = document.createElement('button');
+  addBtn.className = 'thoriz-add';
+  addBtn.textContent = '+';
+  addBtn.title = 'Añadir turno';
+  addBtn.onclick = ()=> openShiftModal(null, datos.empleados[0] ? datos.empleados[0].id : null, dia, weekIso);
+  label.appendChild(addBtn);
+  row.appendChild(label);
+
+  const turnosDelDia = week.turnos.filter(t=>t.dia===dia);
+  const empIdsTrabajando = new Set(turnosDelDia.map(t=>t.empleadoId));
+  const hayFarmaceutico = [...empIdsTrabajando].some(id=>{ const e=empleadoById(id); return e && e.rol==='farmaceutico'; });
+
+  const track = document.createElement('div');
+  track.className = 'thoriz-track';
+
+  ticks.forEach(m=>{
+    const gl = document.createElement('div');
+    gl.className = 'thoriz-gridline';
+    gl.style.left = ((m-startMin)/totalMin*100)+'%';
+    track.appendChild(gl);
+  });
+
+  const overlapSet = new Set();
+  const porEmpleado = {};
+  turnosDelDia.forEach(t=>{ (porEmpleado[t.empleadoId] = porEmpleado[t.empleadoId] || []).push(t); });
+  Object.values(porEmpleado).forEach(arr=>{ findOverlaps(arr).forEach(id=>overlapSet.add(id)); });
+
+  // Una fila fija por empleado (no por hueco libre de tiempo): así el turno partido de
+  // una persona (mañana + tarde) se ve siempre en su misma línea con su mismo color, en
+  // vez de mezclarse en la misma fila con turnos de otras personas que no se solapan.
+  // También incluye a quien esté de vacaciones/baja/permiso ese día aunque no tenga turno
+  // asignado — si no, una ausencia sin turno de por medio no se vería aquí en absoluto.
+  const empIdsAusentes = new Set(datos.empleados.filter(e=>ausenciaDeEmpleado(e.id, dateIso)).map(e=>e.id));
+  const empleadosDelDiaIds = datos.empleados.filter(e=>empIdsTrabajando.has(e.id) || empIdsAusentes.has(e.id)).map(e=>e.id);
+  const filaPorEmpleado = new Map(empleadosDelDiaIds.map((id,i)=>[id,i]));
+  const totalFilas = Math.max(1, empleadosDelDiaIds.length);
+
+  empleadosDelDiaIds.forEach(empId=>{
+    const emp = empleadoById(empId);
+    if(!emp) return;
+    const fila = filaPorEmpleado.get(empId);
+    const ausencia = ausenciaDeEmpleado(empId, dateIso);
+    if(ausencia){
+      // Si además tenía turno asignado ese día, se muestra la ausencia en su lugar (el
+      // turno no se borra, solo deja de pintarse como si estuviera trabajando) para no
+      // dar la falsa impresión de que trabaja. Si no tenía turno, es simplemente su
+      // única marca ese día (si no, una ausencia sin turno no se vería en absoluto).
+      const teniaTurno = turnosDelDia.some(t=>t.empleadoId===empId);
+      const tipo = TIPOS_AUSENCIA[ausencia.tipo];
+      const abs = document.createElement('div');
+      abs.className = 'thoriz-absence';
+      abs.style.top = (fila*THORIZ_FILA_ALTO)+'px';
+      abs.style.background = tipo.color;
+      abs.textContent = tipo.icon;
+      abs.title = `${emp.nombre}: ${tipo.label}${ausencia.nota ? ' — '+ausencia.nota : ''}${teniaTurno ? ' (tenía turno asignado este día, no se muestra por la ausencia)' : ''}`;
+      track.appendChild(abs);
+      return;
+    }
+    turnosDelDia.filter(t=>t.empleadoId===empId).forEach(t=>{
+      const left = Math.max(0, (toMinutes(t.inicio)-startMin)/totalMin*100);
+      const width = Math.max(1, Math.min(100-left, (toMinutes(t.fin)-toMinutes(t.inicio))/totalMin*100));
+      descansoCache[emp.id] = descansoCache[emp.id] || turnosConDescansoInsuficiente(emp.id, weekIso);
+      const gapDescanso = descansoCache[emp.id].get(t.id);
+      const bar = document.createElement('div');
+      bar.className = 'thoriz-bar' + (overlapSet.has(t.id) ? ' overlap' : '') + (gapDescanso!==undefined ? ' descanso-corto' : '');
+      bar.style.left = left+'%';
+      bar.style.width = width+'%';
+      bar.style.top = (fila*THORIZ_FILA_ALTO)+'px';
+      bar.style.backgroundColor = emp.color;
+      bar.title = gapDescanso!==undefined
+        ? `${emp.nombre}: ${t.inicio}–${t.fin} — ⚠ descanso de solo ${fmtHoras(gapDescanso)} (mínimo legal ${DESCANSO_MINIMO_HORAS}h)`
+        : `${emp.nombre}: ${t.inicio}–${t.fin}`;
+      bar.onclick = ()=> openShiftModal(t.id, null, null, weekIso);
+      track.appendChild(bar);
+    });
+  });
+
+  track.style.height = (totalFilas*THORIZ_FILA_ALTO + 4)+'px';
+
+  if(isToday && nowMin>=startMin && nowMin<=endMin){
+    const nowLine = document.createElement('div');
+    nowLine.className = 'thoriz-now';
+    nowLine.style.left = ((nowMin-startMin)/totalMin*100)+'%';
+    track.appendChild(nowLine);
+  }
+
+  row.appendChild(track);
+
+  const hayAviso = empIdsTrabajando.size>0 && !hayFarmaceutico;
+  const warn = document.createElement('div');
+  warn.className = 'thoriz-warn' + (hayAviso ? '' : ' oculto');
+  warn.textContent = '⚠';
+  if(hayAviso) warn.title = 'Ningún farmacéutico trabajando este día';
+  row.appendChild(warn);
+
+  return row;
+}
+
+function buildCompactWeekRow(weekIso, conEtiqueta){
+  const {startMin, endMin, ticks} = getTicks();
+  const totalMin = Math.max(1, endMin - startMin);
 
   const block = document.createElement('div');
   block.className = 'compact-week-block';
@@ -2316,113 +2450,23 @@ function buildCompactWeekRow(weekIso, conEtiqueta){
 
   const descansoCache = {}; // empleadoId -> Map(turnoId -> horas de descanso), calculado una vez por empleado para esta semana
   for(let dia=0; dia<6; dia++){ // Lunes a Sábado
-    const dateIso = addDaysIso(weekIso, dia);
-    const isToday = dateIso===hoyIso;
-    const row = document.createElement('div');
-    row.className = 'thoriz-day-row' + (isToday ? ' is-today' : '');
-
-    const label = document.createElement('div');
-    label.className = 'thoriz-day-label';
-    label.innerHTML = `<span>${DIAS[dia].slice(0,3)} ${new Date(dateIso+'T00:00:00').getDate()}</span>`;
-    const addBtn = document.createElement('button');
-    addBtn.className = 'thoriz-add';
-    addBtn.textContent = '+';
-    addBtn.title = 'Añadir turno';
-    addBtn.onclick = ()=> openShiftModal(null, datos.empleados[0] ? datos.empleados[0].id : null, dia, weekIso);
-    label.appendChild(addBtn);
-    row.appendChild(label);
-
-    const turnosDelDia = week.turnos.filter(t=>t.dia===dia);
-    const empIdsTrabajando = new Set(turnosDelDia.map(t=>t.empleadoId));
-    const hayFarmaceutico = [...empIdsTrabajando].some(id=>{ const e=empleadoById(id); return e && e.rol==='farmaceutico'; });
-
-    const track = document.createElement('div');
-    track.className = 'thoriz-track';
-
-    ticks.forEach(m=>{
-      const gl = document.createElement('div');
-      gl.className = 'thoriz-gridline';
-      gl.style.left = ((m-startMin)/totalMin*100)+'%';
-      track.appendChild(gl);
-    });
-
-    const overlapSet = new Set();
-    const porEmpleado = {};
-    turnosDelDia.forEach(t=>{ (porEmpleado[t.empleadoId] = porEmpleado[t.empleadoId] || []).push(t); });
-    Object.values(porEmpleado).forEach(arr=>{ findOverlaps(arr).forEach(id=>overlapSet.add(id)); });
-
-    // Una fila fija por empleado (no por hueco libre de tiempo): así el turno partido de
-    // una persona (mañana + tarde) se ve siempre en su misma línea con su mismo color, en
-    // vez de mezclarse en la misma fila con turnos de otras personas que no se solapan.
-    // También incluye a quien esté de vacaciones/baja/permiso ese día aunque no tenga turno
-    // asignado — si no, una ausencia sin turno de por medio no se vería aquí en absoluto.
-    const empIdsAusentes = new Set(datos.empleados.filter(e=>ausenciaDeEmpleado(e.id, dateIso)).map(e=>e.id));
-    const empleadosDelDiaIds = datos.empleados.filter(e=>empIdsTrabajando.has(e.id) || empIdsAusentes.has(e.id)).map(e=>e.id);
-    const filaPorEmpleado = new Map(empleadosDelDiaIds.map((id,i)=>[id,i]));
-    const totalFilas = Math.max(1, empleadosDelDiaIds.length);
-
-    empleadosDelDiaIds.forEach(empId=>{
-      const emp = empleadoById(empId);
-      if(!emp) return;
-      const fila = filaPorEmpleado.get(empId);
-      const ausencia = ausenciaDeEmpleado(empId, dateIso);
-      if(ausencia){
-        // Si además tenía turno asignado ese día, se muestra la ausencia en su lugar (el
-        // turno no se borra, solo deja de pintarse como si estuviera trabajando) para no
-        // dar la falsa impresión de que trabaja. Si no tenía turno, es simplemente su
-        // única marca ese día (si no, una ausencia sin turno no se vería en absoluto).
-        const teniaTurno = turnosDelDia.some(t=>t.empleadoId===empId);
-        const tipo = TIPOS_AUSENCIA[ausencia.tipo];
-        const abs = document.createElement('div');
-        abs.className = 'thoriz-absence';
-        abs.style.top = (fila*THORIZ_FILA_ALTO)+'px';
-        abs.style.background = tipo.color;
-        abs.textContent = tipo.icon;
-        abs.title = `${emp.nombre}: ${tipo.label}${ausencia.nota ? ' — '+ausencia.nota : ''}${teniaTurno ? ' (tenía turno asignado este día, no se muestra por la ausencia)' : ''}`;
-        track.appendChild(abs);
-        return;
-      }
-      turnosDelDia.filter(t=>t.empleadoId===empId).forEach(t=>{
-        const left = Math.max(0, (toMinutes(t.inicio)-startMin)/totalMin*100);
-        const width = Math.max(1, Math.min(100-left, (toMinutes(t.fin)-toMinutes(t.inicio))/totalMin*100));
-        descansoCache[emp.id] = descansoCache[emp.id] || turnosConDescansoInsuficiente(emp.id, weekIso);
-        const gapDescanso = descansoCache[emp.id].get(t.id);
-        const bar = document.createElement('div');
-        bar.className = 'thoriz-bar' + (overlapSet.has(t.id) ? ' overlap' : '') + (gapDescanso!==undefined ? ' descanso-corto' : '');
-        bar.style.left = left+'%';
-        bar.style.width = width+'%';
-        bar.style.top = (fila*THORIZ_FILA_ALTO)+'px';
-        bar.style.backgroundColor = emp.color;
-        bar.title = gapDescanso!==undefined
-          ? `${emp.nombre}: ${t.inicio}–${t.fin} — ⚠ descanso de solo ${fmtHoras(gapDescanso)} (mínimo legal ${DESCANSO_MINIMO_HORAS}h)`
-          : `${emp.nombre}: ${t.inicio}–${t.fin}`;
-        bar.onclick = ()=> openShiftModal(t.id, null, null, weekIso);
-        track.appendChild(bar);
-      });
-    });
-
-    track.style.height = (totalFilas*THORIZ_FILA_ALTO + 4)+'px';
-
-    if(isToday && nowMin>=startMin && nowMin<=endMin){
-      const nowLine = document.createElement('div');
-      nowLine.className = 'thoriz-now';
-      nowLine.style.left = ((nowMin-startMin)/totalMin*100)+'%';
-      track.appendChild(nowLine);
-    }
-
-    row.appendChild(track);
-
-    const hayAviso = empIdsTrabajando.size>0 && !hayFarmaceutico;
-    const warn = document.createElement('div');
-    warn.className = 'thoriz-warn' + (hayAviso ? '' : ' oculto');
-    warn.textContent = '⚠';
-    if(hayAviso) warn.title = 'Ningún farmacéutico trabajando este día';
-    row.appendChild(warn);
-
-    block.appendChild(row);
+    block.appendChild(buildThorizDayRow(weekIso, dia, startMin, endMin, totalMin, ticks, descansoCache));
   }
 
   return block;
+}
+
+// Vista compacta de UN solo día (eje horario + una única fila-día), usada en móvil-horizontal
+// dentro de "Horario día por día" en vez de la línea de tiempo ancha de escritorio o de las
+// tarjetas verticales (que no dejan ver el solape entre varias personas).
+function buildDayThorizSingle(weekIso, dia){
+  const {startMin, endMin, ticks} = getTicks();
+  const totalMin = Math.max(1, endMin - startMin);
+  const wrap = document.createElement('div');
+  wrap.className = 'thoriz-single-day';
+  wrap.appendChild(buildAxisRow(startMin, endMin, totalMin, ticks));
+  wrap.appendChild(buildThorizDayRow(weekIso, dia, startMin, endMin, totalMin, ticks));
+  return wrap;
 }
 
 // Permite arrastrar con el botón izquierdo del ratón dentro de un contenedor con scroll
@@ -2487,23 +2531,27 @@ function buildDayBlock(dia){
   headerRow.appendChild(stats);
   block.appendChild(headerRow);
 
-  // En pantallas de móvil, la línea de tiempo horizontal es difícil de tocar con precisión
-  // (por pequeña que se deje) — se sustituye por una lista vertical de tarjetas, una por
-  // empleado, con sus turnos como chips grandes que se tocan para editar. El ordenador sigue
-  // viendo la línea de tiempo de siempre, sin ningún cambio.
-  // Se mira también si el dispositivo es táctil (no solo el ancho en px): un móvil en
-  // horizontal supera fácilmente los 640px pero sigue siendo un móvil — sin este aviso se
-  // quedaría con la línea de tiempo apretada en vez de las tarjetas.
+  // Tres formas de mostrar el día según el dispositivo:
+  // 1) Móvil estrecho (vertical, ≤640px): tarjetas verticales, una por empleado — fácil de
+  //    tocar, pero sin eje de tiempo compartido (no se ve el solape entre personas).
+  // 2) Móvil ancho y táctil (horizontal, hasta 900px): las mismas barras compactas con solape
+  //    que "Semana completa" (un eje de tiempo compartido entre empleados), para poder ver
+  //    quién coincide con quién de un vistazo — esto SÍ necesita el ancho extra del horizontal.
+  // 3) Escritorio (sin táctil, cualquier ancho): la línea de tiempo grande de siempre, con
+  //    arrastrar para mover/redimensionar.
   const esTactil = (navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
-  const esMovil = window.matchMedia('(max-width: 640px)').matches
-    || (esTactil && window.matchMedia('(max-width: 900px)').matches);
+  const anchoEstrecho = window.matchMedia('(max-width: 640px)').matches;
+  const anchoMedioTactil = !anchoEstrecho && esTactil && window.matchMedia('(max-width: 900px)').matches;
+  const esMovilCompacto = anchoEstrecho || anchoMedioTactil;
 
   if(turnosDelDia.length===0 && numAusentes===0){
     const aviso = document.createElement('div');
     aviso.className = 'hint';
     aviso.style.cssText = 'margin:0 0 12px 0; padding:10px 12px; background:var(--surface-hover); border-radius:8px;';
-    aviso.textContent = esMovil
+    aviso.textContent = anchoEstrecho
       ? 'Todavía no hay ningún turno guardado para este día. Usa "+ turno" en cualquier tarjeta para crear uno.'
+      : anchoMedioTactil
+      ? 'Todavía no hay ningún turno guardado para este día. Usa el botón "+" para crear uno.'
       : 'Todavía no hay ningún turno guardado para este día. Arrastra sobre la franja horaria de abajo para crear uno, o usa "+ turno".';
     block.appendChild(aviso);
   }
@@ -2511,7 +2559,12 @@ function buildDayBlock(dia){
   const now = new Date();
   const nowMin = isToday ? (now.getHours()*60+now.getMinutes()) : null;
 
-  if(!esMovil){
+  if(anchoMedioTactil){
+    block.appendChild(buildDayThorizSingle(datos.semanaActual, dia));
+    return block;
+  }
+
+  if(!esMovilCompacto){
     const scale = document.createElement('div');
     scale.className = 'timeline-scale';
     const spacer = document.createElement('div');
@@ -2539,7 +2592,7 @@ function buildDayBlock(dia){
   }
 
   const body = document.createElement('div');
-  body.className = esMovil ? 'day-list-mobile' : '';
+  body.className = anchoEstrecho ? 'day-list-mobile' : '';
 
   const empConTurno = [];
   const empAusente = [];
@@ -2554,7 +2607,7 @@ function buildDayBlock(dia){
   });
   empConTurno.sort((a,b)=> toMinutes(a.turnos[0].inicio) - toMinutes(b.turnos[0].inicio));
 
-  if(esMovil){
+  if(anchoEstrecho){
     empConTurno.forEach(({emp,turnos,ausencia})=>{
       const descansoMap = turnosConDescansoInsuficiente(emp.id, datos.semanaActual);
       body.appendChild(buildDayCardMobile(emp, dia, turnos, ausencia, descansoMap));
