@@ -444,6 +444,31 @@
   .print-day-line{font-size:11.5px; padding:2px 0; border-bottom:1px dotted #ddd;}
   .print-emp-total{font-weight:700; margin-top:6px; font-size:12px;}
 
+  /* ---- Lista de tarjetas del día (sustituye a la línea de tiempo horizontal en móvil,
+     tanto vertical como horizontal — JS decide cuándo usarla según ancho Y si el dispositivo
+     es táctil, así que estas reglas no van dentro de un @media: si no se genera el marcado
+     .day-card, simplemente no se usan nunca en escritorio). ---- */
+  .day-list-mobile{ display:flex; flex-direction:column; gap:8px; }
+  .day-card{
+    border:1px solid var(--border); border-radius:10px; padding:10px 12px; background:var(--surface);
+  }
+  .day-card-head{
+    display:flex; align-items:center; gap:6px; font-weight:600; font-size:13.5px;
+    margin-bottom:8px; cursor:pointer;
+  }
+  .day-card-turnos{ display:flex; flex-direction:column; gap:6px; }
+  .day-card-turno{
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    padding:11px 12px; border-radius:8px; font-weight:700; font-size:14.5px; cursor:pointer;
+    border-left:4px solid transparent; color:var(--text);
+  }
+  .day-card-turno.descanso-corto{ outline:2px dashed var(--warning); outline-offset:-2px; }
+  .day-card-turno-horas{ font-weight:400; color:var(--muted); font-size:12px; }
+  .day-card-ausencia{
+    padding:11px 12px; border-radius:8px; font-weight:600; font-size:13.5px; color:#fff; cursor:pointer;
+  }
+  .day-card-libre{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+
   /* ---- Pantallas de móvil ---- */
   @media (max-width: 640px){
     body{ padding:12px; font-size:13.5px; }
@@ -462,29 +487,12 @@
     .timeline-spacer, .tl-label{ width:96px; font-size:11.5px; }
     .thoriz-label-spacer, .thoriz-day-label{ width:52px; font-size:10.5px; }
     table.summary td.total-cell{ min-width:110px; }
+  }
 
-    /* ---- Lista de tarjetas del día (sustituye a la línea de tiempo horizontal, difícil
-       de tocar con precisión en una pantalla pequeña) ---- */
-    .day-list-mobile{ display:flex; flex-direction:column; gap:8px; }
-    .day-card{
-      border:1px solid var(--border); border-radius:10px; padding:10px 12px; background:var(--surface);
-    }
-    .day-card-head{
-      display:flex; align-items:center; gap:6px; font-weight:600; font-size:13.5px;
-      margin-bottom:8px; cursor:pointer;
-    }
-    .day-card-turnos{ display:flex; flex-direction:column; gap:6px; }
-    .day-card-turno{
-      display:flex; justify-content:space-between; align-items:center; gap:8px;
-      padding:11px 12px; border-radius:8px; font-weight:700; font-size:14.5px; cursor:pointer;
-      border-left:4px solid transparent; color:var(--text);
-    }
-    .day-card-turno.descanso-corto{ outline:2px dashed var(--warning); outline-offset:-2px; }
-    .day-card-turno-horas{ font-weight:400; color:var(--muted); font-size:12px; }
-    .day-card-ausencia{
-      padding:11px 12px; border-radius:8px; font-weight:600; font-size:13.5px; color:#fff; cursor:pointer;
-    }
-    .day-card-libre{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  /* En horizontal (móvil táctil hasta 900px), el modal de editar/crear turno también debería
+     caber sin desbordar — usa el mismo límite que en vertical. */
+  @media (max-width: 900px) and (pointer: coarse){
+    .modal{ width:min(340px, 92vw); }
   }
 
   @media print{
@@ -2478,7 +2486,12 @@ function buildDayBlock(dia){
   // (por pequeña que se deje) — se sustituye por una lista vertical de tarjetas, una por
   // empleado, con sus turnos como chips grandes que se tocan para editar. El ordenador sigue
   // viendo la línea de tiempo de siempre, sin ningún cambio.
-  const esMovil = window.matchMedia('(max-width: 640px)').matches;
+  // Se mira también si el dispositivo es táctil (no solo el ancho en px): un móvil en
+  // horizontal supera fácilmente los 640px pero sigue siendo un móvil — sin este aviso se
+  // quedaría con la línea de tiempo apretada en vez de las tarjetas.
+  const esTactil = (navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
+  const esMovil = window.matchMedia('(max-width: 640px)').matches
+    || (esTactil && window.matchMedia('(max-width: 900px)').matches);
 
   if(turnosDelDia.length===0 && numAusentes===0){
     const aviso = document.createElement('div');
