@@ -208,6 +208,9 @@
   }
   .week-legend.collapsed{width:0; padding:0; opacity:0; gap:0;}
   .legend-title{font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:700; margin-bottom:2px;}
+  .legend-seccion-vacaciones{
+    margin-top:12px; padding:8px 6px 4px 6px; border-radius:8px; background:var(--surface-hover);
+  }
   .legend-item{display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--text2); flex-wrap:wrap;}
   .legend-edit{margin-left:auto; padding:2px; border:none; background:none; display:flex; align-items:center; color:var(--muted); opacity:0; transition:opacity .12s ease, color .12s ease; flex:none;}
   .legend-item-clickable:hover .legend-edit{opacity:1;}
@@ -2233,26 +2236,67 @@ function renderDayTimeline(){
 // Vista compacta de Lunes a Sábado en columnas, pensada para caber en una sola pantalla.
 // La identidad de cada persona se apoya en su color (leyenda arriba) y en su nombre
 // abreviado dentro de cada turno, en vez de repetir una fila por empleado y día.
-// Rellena un contenedor con la leyenda de empleados (avatar, nombre, rol, editar) — compartida
-// entre "Semana completa" (la vuelca en su propio #weekLegend) y la vista compacta de un solo
-// día en móvil-horizontal (buildDayThorizSingle), que la necesita en su propio bloque autónomo
-// porque ahí los turnos solo se distinguen por color, sin nombre pegado a cada barra.
+// Construye una fila de la leyenda para un empleado (avatar con SU color, nombre, rol, botón
+// de editar) — pieza compartida por las distintas leyendas de la app.
+function construirItemLeyendaEmp(emp){
+  const item = document.createElement('div');
+  item.className = 'legend-item legend-item-clickable';
+  item.title = 'Ver ficha de ' + emp.nombre;
+  item.innerHTML = `${avatarHtml(emp, 18)}${emp.nombre}${rolBadgeHtml(emp)}`;
+  item.onclick = (ev)=>{ if(ev.target.closest('button')) return; abrirFichaEmpleado(emp.id); };
+  const edit = document.createElement('button');
+  edit.className = 'legend-edit';
+  edit.innerHTML = ICONOS.editar;
+  edit.title = 'Editar ' + emp.nombre;
+  edit.onclick = (ev)=>{ ev.stopPropagation(); openEmpleadoModal(emp.id); };
+  item.appendChild(edit);
+  return item;
+}
+
+// Rellena un contenedor con la leyenda de TODOS los empleados sin distinción — la usa
+// "Semana completa", que abarca varios días a la vez y por tanto no tiene un único "quién
+// trabaja hoy" con el que separar la lista.
 function llenarLeyendaEmpleados(container){
   container.innerHTML = '<div class="legend-title">Empleados</div>';
-  datos.empleados.forEach(emp=>{
-    const item = document.createElement('div');
-    item.className = 'legend-item legend-item-clickable';
-    item.title = 'Ver ficha de ' + emp.nombre;
-    item.innerHTML = `${avatarHtml(emp, 18)}${emp.nombre}${rolBadgeHtml(emp)}`;
-    item.onclick = (ev)=>{ if(ev.target.closest('button')) return; abrirFichaEmpleado(emp.id); };
-    const edit = document.createElement('button');
-    edit.className = 'legend-edit';
-    edit.innerHTML = ICONOS.editar;
-    edit.title = 'Editar ' + emp.nombre;
-    edit.onclick = (ev)=>{ ev.stopPropagation(); openEmpleadoModal(emp.id); };
-    item.appendChild(edit);
-    container.appendChild(item);
-  });
+  datos.empleados.forEach(emp=> container.appendChild(construirItemLeyendaEmp(emp)));
+}
+
+// Leyenda de UN día concreto: a diferencia de la anterior, aquí sí hay un único "hoy" con el
+// que separar — activos primero (mismo orden y color que sus barras en la franja horaria) y,
+// en su propio recuadro aparte al final, quien está de vacaciones/baja/permiso ese día.
+function llenarLeyendaDia(container, weekIso, dia){
+  const week = getWeek(weekIso);
+  const dateIso = addDaysIso(weekIso, dia);
+  const turnosDelDia = week.turnos.filter(t=>t.dia===dia);
+  const empIdsTrabajando = new Set(turnosDelDia.map(t=>t.empleadoId));
+  const empIdsAusentes = new Set(datos.empleados.filter(e=>ausenciaDeEmpleado(e.id, dateIso)).map(e=>e.id));
+  const activos = datos.empleados.filter(e=>empIdsTrabajando.has(e.id) && !empIdsAusentes.has(e.id));
+  const ausentes = datos.empleados.filter(e=>empIdsAusentes.has(e.id));
+
+  container.innerHTML = '';
+  const tituloActivos = document.createElement('div');
+  tituloActivos.className = 'legend-title';
+  tituloActivos.textContent = 'Activos';
+  container.appendChild(tituloActivos);
+  if(activos.length===0){
+    const vacio = document.createElement('div');
+    vacio.className = 'hint';
+    vacio.textContent = 'Nadie trabaja este día.';
+    container.appendChild(vacio);
+  } else {
+    activos.forEach(emp=> container.appendChild(construirItemLeyendaEmp(emp)));
+  }
+
+  if(ausentes.length>0){
+    const seccion = document.createElement('div');
+    seccion.className = 'legend-seccion-vacaciones';
+    const tituloVacaciones = document.createElement('div');
+    tituloVacaciones.className = 'legend-title';
+    tituloVacaciones.textContent = 'Vacaciones, bajas y permisos';
+    seccion.appendChild(tituloVacaciones);
+    ausentes.forEach(emp=> seccion.appendChild(construirItemLeyendaEmp(emp)));
+    container.appendChild(seccion);
+  }
 }
 
 function renderVistaSemana(){
@@ -2476,7 +2520,7 @@ function buildDayThorizSingle(weekIso, dia){
 
   const legend = document.createElement('div');
   legend.className = 'week-legend';
-  llenarLeyendaEmpleados(legend);
+  llenarLeyendaDia(legend, weekIso, dia);
   outer.appendChild(legend);
 
   const content = document.createElement('div');
