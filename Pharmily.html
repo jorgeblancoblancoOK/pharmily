@@ -477,10 +477,6 @@
     padding:11px 12px; border-radius:8px; font-weight:600; font-size:13.5px; color:#fff; cursor:pointer;
   }
   .day-card-libre{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
-  .thoriz-single-day{
-    border:1px solid var(--border); border-radius:10px; padding:10px; background:var(--bg);
-    overflow-x:auto;
-  }
 
   /* ---- Pantallas de móvil ---- */
   @media (max-width: 640px){
@@ -2237,9 +2233,12 @@ function renderDayTimeline(){
 // Vista compacta de Lunes a Sábado en columnas, pensada para caber en una sola pantalla.
 // La identidad de cada persona se apoya en su color (leyenda arriba) y en su nombre
 // abreviado dentro de cada turno, en vez de repetir una fila por empleado y día.
-function renderVistaSemana(){
-  const legend = document.getElementById('weekLegend');
-  legend.innerHTML = '<div class="legend-title">Empleados</div>';
+// Rellena un contenedor con la leyenda de empleados (avatar, nombre, rol, editar) — compartida
+// entre "Semana completa" (la vuelca en su propio #weekLegend) y la vista compacta de un solo
+// día en móvil-horizontal (buildDayThorizSingle), que la necesita en su propio bloque autónomo
+// porque ahí los turnos solo se distinguen por color, sin nombre pegado a cada barra.
+function llenarLeyendaEmpleados(container){
+  container.innerHTML = '<div class="legend-title">Empleados</div>';
   datos.empleados.forEach(emp=>{
     const item = document.createElement('div');
     item.className = 'legend-item legend-item-clickable';
@@ -2252,8 +2251,12 @@ function renderVistaSemana(){
     edit.title = 'Editar ' + emp.nombre;
     edit.onclick = (ev)=>{ ev.stopPropagation(); openEmpleadoModal(emp.id); };
     item.appendChild(edit);
-    legend.appendChild(item);
+    container.appendChild(item);
   });
+}
+
+function renderVistaSemana(){
+  llenarLeyendaEmpleados(document.getElementById('weekLegend'));
 
   const cont = document.getElementById('semanaContenido');
   cont.innerHTML = '';
@@ -2366,8 +2369,11 @@ function buildThorizDayRow(weekIso, dia, startMin, endMin, totalMin, ticks, desc
   // vez de mezclarse en la misma fila con turnos de otras personas que no se solapan.
   // También incluye a quien esté de vacaciones/baja/permiso ese día aunque no tenga turno
   // asignado — si no, una ausencia sin turno de por medio no se vería aquí en absoluto.
+  // Quien está de vacaciones/baja/permiso va siempre al final (no mezclado con quien trabaja).
   const empIdsAusentes = new Set(datos.empleados.filter(e=>ausenciaDeEmpleado(e.id, dateIso)).map(e=>e.id));
-  const empleadosDelDiaIds = datos.empleados.filter(e=>empIdsTrabajando.has(e.id) || empIdsAusentes.has(e.id)).map(e=>e.id);
+  const trabajandoIds = datos.empleados.filter(e=>empIdsTrabajando.has(e.id) && !empIdsAusentes.has(e.id)).map(e=>e.id);
+  const ausentesIds = datos.empleados.filter(e=>empIdsAusentes.has(e.id)).map(e=>e.id);
+  const empleadosDelDiaIds = [...trabajandoIds, ...ausentesIds];
   const filaPorEmpleado = new Map(empleadosDelDiaIds.map((id,i)=>[id,i]));
   const totalFilas = Math.max(1, empleadosDelDiaIds.length);
 
@@ -2456,17 +2462,30 @@ function buildCompactWeekRow(weekIso, conEtiqueta){
   return block;
 }
 
-// Vista compacta de UN solo día (eje horario + una única fila-día), usada en móvil-horizontal
-// dentro de "Horario día por día" en vez de la línea de tiempo ancha de escritorio o de las
-// tarjetas verticales (que no dejan ver el solape entre varias personas).
+// Vista compacta de UN solo día (leyenda + eje horario + una única fila-día), usada en
+// móvil-horizontal dentro de "Horario día por día" en vez de la línea de tiempo ancha de
+// escritorio o de las tarjetas verticales (que no dejan ver el solape entre varias personas).
+// Necesita su propia leyenda (a diferencia de las otras dos vistas) porque aquí cada empleado
+// solo se distingue por el color de su barra, sin ningún nombre pegado a ella.
 function buildDayThorizSingle(weekIso, dia){
   const {startMin, endMin, ticks} = getTicks();
   const totalMin = Math.max(1, endMin - startMin);
-  const wrap = document.createElement('div');
-  wrap.className = 'thoriz-single-day';
-  wrap.appendChild(buildAxisRow(startMin, endMin, totalMin, ticks));
-  wrap.appendChild(buildThorizDayRow(weekIso, dia, startMin, endMin, totalMin, ticks));
-  return wrap;
+
+  const outer = document.createElement('div');
+  outer.className = 'compact-week-wrap';
+
+  const legend = document.createElement('div');
+  legend.className = 'week-legend';
+  llenarLeyendaEmpleados(legend);
+  outer.appendChild(legend);
+
+  const content = document.createElement('div');
+  content.className = 'thoriz-scroll-content';
+  content.appendChild(buildAxisRow(startMin, endMin, totalMin, ticks));
+  content.appendChild(buildThorizDayRow(weekIso, dia, startMin, endMin, totalMin, ticks));
+  outer.appendChild(content);
+
+  return outer;
 }
 
 // Permite arrastrar con el botón izquierdo del ratón dentro de un contenedor con scroll
@@ -2607,32 +2626,24 @@ function buildDayBlock(dia){
   });
   empConTurno.sort((a,b)=> toMinutes(a.turnos[0].inicio) - toMinutes(b.turnos[0].inicio));
 
+  // Orden siempre: trabajando primero, libres después, y quien está de vacaciones/baja/
+  // permiso al final del todo (es la información menos relevante para el día a día).
   if(anchoEstrecho){
     empConTurno.forEach(({emp,turnos,ausencia})=>{
       const descansoMap = turnosConDescansoInsuficiente(emp.id, datos.semanaActual);
       body.appendChild(buildDayCardMobile(emp, dia, turnos, ausencia, descansoMap));
     });
-    empAusente.forEach(({emp,ausencia})=>{
-      body.appendChild(buildDayCardMobile(emp, dia, [], ausencia, new Map()));
-    });
     empLibre.forEach(emp=>{
       body.appendChild(buildDayCardMobile(emp, dia, [], null, new Map()));
+    });
+    empAusente.forEach(({emp,ausencia})=>{
+      body.appendChild(buildDayCardMobile(emp, dia, [], ausencia, new Map()));
     });
   } else {
     empConTurno.forEach(({emp,turnos,ausencia})=>{
       const descansoMap = turnosConDescansoInsuficiente(emp.id, datos.semanaActual);
       body.appendChild(buildTimelineRow(emp, dia, turnos, startMin, totalMin, ticks, nowMin, ausencia, descansoMap));
     });
-
-    if(empAusente.length){
-      const divider = document.createElement('div');
-      divider.className = 'off-divider';
-      divider.textContent = 'De vacaciones, de baja o con permiso';
-      body.appendChild(divider);
-      empAusente.forEach(({emp,ausencia})=>{
-        body.appendChild(buildAbsenceRow(emp, dia, ausencia));
-      });
-    }
 
     if(empLibre.length){
       const divider = document.createElement('div');
@@ -2641,6 +2652,16 @@ function buildDayBlock(dia){
       body.appendChild(divider);
       empLibre.forEach(emp=>{
         body.appendChild(buildTimelineRow(emp, dia, [], startMin, totalMin, ticks, nowMin, null));
+      });
+    }
+
+    if(empAusente.length){
+      const divider = document.createElement('div');
+      divider.className = 'off-divider';
+      divider.textContent = 'De vacaciones, de baja o con permiso';
+      body.appendChild(divider);
+      empAusente.forEach(({emp,ausencia})=>{
+        body.appendChild(buildAbsenceRow(emp, dia, ausencia));
       });
     }
   }
