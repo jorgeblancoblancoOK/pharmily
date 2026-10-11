@@ -7,19 +7,25 @@ def _visibles_sin_etiqueta(page):
       .map(i => i.id || i.outerHTML.slice(0, 60))""")
 
 
+def test_login_campos_etiquetados(app):
+    app.abrir()
+    assert _visibles_sin_etiqueta(app.page) == []
+
+
 def test_asistente_campos_etiquetados(app):
     app.abrir()
+    app.login()
     assert _visibles_sin_etiqueta(app.page) == []
 
 
 def test_ventanas_campos_etiquetados(app_lista):
     faltan = {}
-    for dlg in ['dlgEmpleados', 'dlgPlantillas', 'dlgVacaciones', 'dlgComputo', 'dlgTexto', 'dlgConfig', 'dlgCuenta']:
+    for dlg in ['dlgEmpleados', 'dlgPlantillas', 'dlgVacaciones', 'dlgComputo', 'dlgTexto', 'dlgConfig', 'dlgCuenta', 'dlgUsuarios', 'dlgSabados']:
         app_lista.abrir_dialogo(dlg)
         f = _visibles_sin_etiqueta(app_lista.page)
         if f:
             faltan[dlg] = f
-        app_lista.page.keyboard.press('Escape')
+        app_lista.cerrar_dialogos()
     assert faltan == {}
 
 

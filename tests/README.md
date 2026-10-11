@@ -1,7 +1,10 @@
 # Pruebas automáticas de Pharmily
 
-Recorren la app como un usuario (asistente, ventanas, empleados, plantillas, semanas, deshacer,
-tema, copias de seguridad, enlaces, móvil), comprueban la seguridad (XSS, backups maliciosos,
+La API del servidor del NAS (`/api/...`) se simula en memoria (`ApiSimulada` en `conftest.py`),
+así que no hace falta tener el servidor encendido.
+
+Recorren la app como un usuario (login de admin y de empleado, cierre de sesión, asistente, ventanas, empleados, plantillas, semanas, deshacer,
+tema, copias de seguridad, enlaces, móvil), comprueban la seguridad (XSS, backups maliciosos, notificaciones y usuarios manipulados,
 CSP/SRI, service worker, secretos, almacenamiento) y la accesibilidad básica.
 
 ```bash
