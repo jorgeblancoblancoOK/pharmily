@@ -2,6 +2,21 @@
 
 Fecha: 2026-10-11 · Entorno: servidor local (`python3 -m http.server`) + Chromium headless (Playwright) · Rama: `claude/app-full-auditor-uaq10b`
 
+## Estado de las correcciones (2026-10-11)
+
+| # | Estado | Cambio |
+|---|--------|--------|
+| 1 | ✅ Corregido | Función `esc()` aplicada en 42 interpolaciones de datos de usuario (nombres, notas, teléfono, provincia, festivos, plantillas) |
+| 2 | ✅ Corregido | `sanearIdsYColores()` en `migrarDatosFarmacia` (se ejecuta al cargar, importar backup y bajar de la nube): ids y colores fuera de formato se reemplazan; CSP añadida |
+| 3 | ✅ Corregido | `pharmily-sw.js` solo cachea mismo origen + supabase-js, y solo respuestas `ok` |
+| 4 | ✅ Corregido | `integrity="sha384-…"` + `crossorigin` en supabase-js (hash calculado del paquete npm 2.45.4) y `<meta>` CSP |
+| 5 | Falso positivo | — |
+| 6 | ✅ Corregido | 50 `<label for>` asociados + `aria-label` en el selector de rol |
+
+Verificación (Playwright): los payloads `<img src=x onerror=alert(...)>` en farmacia y empleado se muestran como texto y no disparan ningún diálogo; un empleado importado con `id`/`color` maliciosos queda saneado (`e_san0`, `#FF0000`); 0 errores de consola y 0 violaciones de CSP. Captura: `audit/03-xss-corregido.png`.
+
+Pendiente fuera del código: confirmar RLS en la tabla `pharmily_sync` de Supabase y probar login/sincronización en un navegador con acceso a jsDelivr (aquí estaba bloqueado, así que la CSP no se pudo probar contra Supabase real).
+
 ## Mapa de la app
 - `index.html` → redirige a `Pharmily.html` (SPA de un solo archivo, ~250 KB).
 - Flujos: asistente inicial (farmacia + empleados), cuadrante semanal, empleados, ausencias/vacaciones, plantillas de turno, festivos, cómputo mensual, import/export JSON y CSV, cuenta y sincronización en la nube (Supabase, tabla `pharmily_sync`), modo oscuro, service worker offline.
@@ -15,7 +30,7 @@ Fecha: 2026-10-11 · Entorno: servidor local (`python3 -m http.server`) + Chromi
 | 2 | El XSS viaja en backups JSON importados y en la sincronización en la nube, y puede robar el token de sesión de Supabase | Seguridad | **Alta** |
 | 3 | El service worker cachea *todas* las peticiones GET, incluidas las respuestas de la API de Supabase con datos de empleados | Seguridad/Privacidad | Media |
 | 4 | `supabase-js` se carga de jsDelivr sin `integrity` (SRI) ni CSP | Seguridad | Media |
-| 5 | Sin conexión al CDN, la app lanza `TypeError: Cannot read properties of null (reading 'empleados')` | Robustez/UX | Media |
+| 5 | ~~Error `null (reading 'empleados')` sin CDN~~ — **falso positivo**: lo provocó el propio script de prueba al abrir un diálogo antes de completar el asistente | — | — |
 | 6 | 22 campos `input/select` sin `<label>` asociado ni `aria-label` | Accesibilidad | Media |
 | 7 | 2 imágenes con `alt=""` (icono de la app; decorativo, aceptable) | Accesibilidad | Baja |
 | 8 | Contraseña: sin requisitos mínimos visibles; el mensaje de error de Supabase se muestra en inglés | UX | Baja |
@@ -79,7 +94,7 @@ self.addEventListener('fetch', (event) => {
 ```
 Generar el hash con `curl -s URL | openssl dgst -sha384 -binary | openssl base64 -A`, o servir el archivo localmente.
 
-### 5. Error en consola sin CDN (Media)
+### 5. Error en consola sin CDN — falso positivo
 Log real (red del entorno bloqueaba jsDelivr):
 ```
 reqfail: https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js
