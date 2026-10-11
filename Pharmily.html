@@ -351,6 +351,7 @@
     font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   }
   .emp-sheet.abierta{transform:none;}
+  .emp-sheet:not(.abierta){visibility:hidden;} /* cerrada: fuera de la vista también al imprimir o en pantallas muy altas */
   @media (min-width:600px){
     .emp-sheet{left:50%; transform:translate(-50%,101%); width:520px; border-radius:22px; bottom:20px;}
     .emp-sheet.abierta{transform:translate(-50%,0);}
@@ -545,6 +546,23 @@
   .thoriz-scroll-content{flex:1; min-width:0;}
   .compact-week-block{margin-bottom:18px;}
   .compact-week-block:last-child{margin-bottom:0;}
+  .emp-meses-cab{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;}
+  .emp-meses-nav{display:flex; align-items:center; gap:6px;}
+  .emp-meses-nav .emp-btn{min-width:40px; padding:6px 10px;}
+  .emp-meses-nombre{min-width:9.5em; text-align:center; font-weight:600;}
+  .emp-meses-nombre::first-letter{text-transform:uppercase;}
+  .emp-meses-aviso{padding:10px 14px 4px; font-size:13px; color:var(--text2);}
+  .emp-fila-ausente{opacity:.7;}
+  .aus-semana{margin:10px 0 4px 0; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface-hover);}
+  .aus-semana-titulo{margin:0 0 8px 0; font-size:12.5px; font-weight:700; color:var(--text2);}
+  .aus-semana-lista{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px;}
+  .aus-semana-item{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; width:100%; text-align:left; padding:6px 8px; border-radius:8px; border:1px solid var(--border); border-left:4px solid var(--aus); background:var(--surface); color:var(--text); font:inherit; cursor:pointer;}
+  .aus-semana-item.pendiente{border-left-style:dashed; opacity:.85;}
+  .aus-semana-nombre{font-weight:600;}
+  .aus-semana-tipo, .aus-semana-dias{font-size:12.5px; color:var(--text2);}
+  .aus-semana-tag{font-size:11.5px; padding:1px 7px; border-radius:999px; background:var(--surface-hover); color:var(--text2);}
+  .aus-semana-tag.aviso{color:var(--warning);}
+  .aus-semana-nota{flex-basis:100%; font-size:12px; color:var(--text2);}
   .compact-week-label{font-size:12.5px; font-weight:700; color:var(--text2); margin:10px 0 6px 0;}
 
   .thoriz-axis-row{display:flex; margin-bottom:4px; gap:6px;}
@@ -5802,6 +5820,10 @@ function buildCuadranteMovil(weekIso){
     rejilla.appendChild(sep);
 
     g.lista.forEach(emp=>{
+      // Fuera toda la semana (todos los días que abre) → no aparece en el cuadrante, solo en
+      // el apartado de vacaciones, bajas y ausencias.
+      const diasAbiertos = dias.filter(d=> d.abre!==null && !d.festivo);
+      if(diasAbiertos.length && diasAbiertos.every(d=> ausenciaDeEmpleado(emp.id, d.iso))) return;
       const fila = document.createElement('div');
       fila.className = 'cm-fila';
       fila.setAttribute('role', 'row');
@@ -5829,8 +5851,7 @@ function buildCuadranteMovil(weekIso){
         let etiqueta = `${emp.nombre}, ${DIAS[d.dia]} ${fmtDateEs(d.iso)}: `;
         if(aus){
           const tipo = TIPOS_AUSENCIA[aus.tipo] ? aus.tipo : 'permiso';
-          clases.push('ausencia', 'aus-'+tipo);
-          celda.innerHTML = `<span class="cm-aus-icono">${iconoTipoHtml(tipo)}</span>`;
+          clases.push('libre', 'fuera');  // el detalle está en "Vacaciones, bajas y ausencias"
           etiqueta += TIPOS_AUSENCIA[tipo].label;
         } else if(turnos.length && d.abre!==null){
           const ini = d.abre, tot = Math.max(1, d.cierra - d.abre);
@@ -5866,6 +5887,8 @@ function buildCuadranteMovil(weekIso){
   });
 
   block.appendChild(rejilla);
+  const panelAus = buildPanelAusenciasSemana(weekIso);
+  if(panelAus) block.appendChild(panelAus);
   return block;
 }
 
@@ -6004,7 +6027,9 @@ function buildThorizDayRow(weekIso, dia, startMin, endMin, totalMin, ticks, desc
   const empIdsAusentes = new Set(datos.empleados.filter(e=>ausenciaDeEmpleado(e.id, dateIso)).map(e=>e.id));
   const trabajandoIds = datos.empleados.filter(e=>empIdsTrabajando.has(e.id) && !empIdsAusentes.has(e.id)).map(e=>e.id);
   const ausentesIds = datos.empleados.filter(e=>empIdsAusentes.has(e.id)).map(e=>e.id);
-  const empleadosDelDiaIds = [...trabajandoIds, ...ausentesIds];
+  // Quien está de vacaciones/baja/permiso NO ocupa fila en el cuadrante: aparece en el
+  // apartado "Vacaciones, bajas y ausencias" de debajo de la semana (buildPanelAusenciasSemana).
+  const empleadosDelDiaIds = trabajandoIds;
   const filaPorEmpleado = new Map(empleadosDelDiaIds.map((id,i)=>[id,i]));
   const totalFilas = Math.max(1, empleadosDelDiaIds.length);
 
@@ -6127,8 +6152,55 @@ function buildCompactWeekRow(weekIso, conEtiqueta){
   for(let dia=0; dia<6; dia++){ // Lunes a Sábado
     block.appendChild(buildThorizDayRow(weekIso, dia, startMin, endMin, totalMin, ticks, descansoCache));
   }
+  const panel = buildPanelAusenciasSemana(weekIso);
+  if(panel) block.appendChild(panel);
 
   return block;
+}
+
+// Apartado "Vacaciones, bajas y ausencias" debajo de cada semana del cuadrante: quien está
+// fuera no ocupa fila entre los que trabajan, se lista aquí con el tipo y los días.
+// Las solicitudes aún sin aprobar también salen, marcadas como pendientes (esas personas
+// siguen en el cuadrante hasta que se aprueben).
+function buildPanelAusenciasSemana(weekIso){
+  const finSemana = addDaysIso(weekIso, 6);
+  const lista = datos.ausencias
+    .filter(a=> a.inicio<=finSemana && (a.fin===null || a.fin>=weekIso) && empleadoById(a.empleadoId))
+    .sort((a,b)=> (a.estado==='pendiente') - (b.estado==='pendiente') || a.inicio.localeCompare(b.inicio));
+  if(!lista.length) return null;
+  const week = getWeek(weekIso);
+  const corto = iso=> `${DIAS[(new Date(iso+'T00:00:00').getDay()+6)%7].slice(0,3)} ${new Date(iso+'T00:00:00').getDate()}`;
+  const panel = document.createElement('section');
+  panel.className = 'aus-semana';
+  panel.setAttribute('aria-label', 'Vacaciones, bajas y ausencias de esta semana');
+  panel.innerHTML = `<h4 class="aus-semana-titulo">De vacaciones, de baja o con permiso</h4>`;
+  const ul = document.createElement('ul');
+  ul.className = 'aus-semana-lista';
+  lista.forEach(a=>{
+    const emp = empleadoById(a.empleadoId);
+    const tipo = TIPOS_AUSENCIA[a.tipo] ? a.tipo : 'permiso';
+    const desde = a.inicio < weekIso ? weekIso : a.inicio;
+    const hasta = a.fin===null || a.fin > finSemana ? finSemana : a.fin;
+    const rango = desde===hasta ? corto(desde) : `${corto(desde)} – ${corto(hasta)}`;
+    const sigue = a.fin===null ? ' · sin fecha de fin' : (a.fin > finSemana ? ` · hasta el ${fmtDateEs(a.fin)}` : '');
+    const conTurno = a.estado!=='pendiente' && week.turnos.some(t=> t.empleadoId===emp.id && addDaysIso(weekIso, t.dia)>=desde && addDaysIso(weekIso, t.dia)<=hasta);
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'aus-semana-item' + (a.estado==='pendiente' ? ' pendiente' : '');
+    btn.style.setProperty('--aus', TIPOS_AUSENCIA[tipo].color);
+    btn.innerHTML = `${avatarHtml(emp, 18)}<span class="aus-semana-nombre">${esc(emp.nombre)}</span>`
+      + `<span class="aus-semana-tipo">${iconoTipoHtml(tipo)} ${esc(etiquetaAusencia(a))}</span>`
+      + `<span class="aus-semana-dias">${esc(rango + sigue)}</span>`
+      + (a.estado==='pendiente' ? `<span class="aus-semana-tag">pendiente de aprobar</span>` : '')
+      + (conTurno ? `<span class="aus-semana-tag aviso">tenía turno asignado (no cuenta)</span>` : '')
+      + (a.nota ? `<span class="aus-semana-nota">${esc(a.nota)}</span>` : '');
+    btn.onclick = ()=> openAusenciaModal(a.id);
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
+  panel.appendChild(ul);
+  return panel;
 }
 
 // Vista compacta de UN solo día (leyenda + eje horario + una única fila-día), usada en
@@ -12478,9 +12550,83 @@ function renderEmpleadoDashboard(data, mensajeExito){
     ${bloqueHoy}
     ${tiraSemana}
     ${bloqueTurnos}
+    <section class="emp-grupo" id="empMeses" aria-label="Tu horario por meses"></section>
     ${bloqueAusencias}
   `;
   document.getElementById('empAccionFija').classList.remove('hidden');
+  iniciarMesesEmpleado(hoyIso, data);
+}
+
+// ---------- Horario del empleado mes a mes ----------
+// Pide al servidor los turnos y ausencias de un mes concreto: GET /api/mi-horario?desde=&hasta=
+// (fechas YYYY-MM-DD). El servidor debe devolver el mismo formato que /api/mi-horario, pero
+// con `proximosTurnos` y `ausencias` limitados a ese rango, y repetir `desde`/`hasta` en la
+// respuesta para indicar que entiende el rango. Si no lo hace (versión antigua del servidor),
+// se enseña solo lo que haya en los 14 días que ya manda, avisando de ello.
+const EMP_MESES_ADELANTE = 6, EMP_MESES_ATRAS = 3;
+function iniciarMesesEmpleado(hoyIso, dataBase){
+  const cont = document.getElementById('empMeses');
+  if(!cont) return;
+  const mesHoy = hoyIso.slice(0,7);
+  const sumarMes = (ym, n)=>{ const d = new Date(ym+'-01T00:00:00'); d.setMonth(d.getMonth()+n); return toIsoLocal(d).slice(0,7); };
+  const minMes = sumarMes(mesHoy, -EMP_MESES_ATRAS), maxMes = sumarMes(mesHoy, EMP_MESES_ADELANTE);
+  let mes = mesHoy;
+  const cache = {};
+
+  async function pedirMes(ym){
+    if(cache[ym]) return cache[ym];
+    const desde = ym+'-01';
+    const d = new Date(desde+'T00:00:00'); d.setMonth(d.getMonth()+1); d.setDate(0);
+    const hasta = toIsoLocal(d);
+    let resp = null;
+    try{ resp = await apiFetch(`/api/mi-horario?desde=${desde}&hasta=${hasta}`); }catch(e){ resp = null; }
+    const soportaRango = !!(resp && resp.desde === desde);
+    const fuente = soportaRango ? resp : dataBase;
+    const enMes = x=> x >= desde && x <= hasta;
+    return cache[ym] = {
+      desde, hasta, soportaRango,
+      turnos: (fuente.proximosTurnos || []).filter(t=> enMes(t.fecha)).sort((a,b)=> (a.fecha+a.inicio).localeCompare(b.fecha+b.inicio)),
+      ausencias: (fuente.ausencias || []).filter(a=> a.inicio <= hasta && (a.fin===null || a.fin >= desde))
+    };
+  }
+
+  async function pintar(){
+    const nombreMes = new Date(mes+'-01T00:00:00').toLocaleDateString('es-ES', {month:'long', year:'numeric'});
+    cont.innerHTML = `
+      <div class="emp-grupo-cab emp-meses-cab">
+        <h2>Tu horario por meses</h2>
+        <div class="emp-meses-nav">
+          <button type="button" class="emp-btn secundario" id="empMesPrev" aria-label="Mes anterior" ${mes<=minMes?'disabled':''}>‹</button>
+          <span class="emp-meses-nombre" aria-live="polite">${esc(nombreMes)}</span>
+          <button type="button" class="emp-btn secundario" id="empMesNext" aria-label="Mes siguiente" ${mes>=maxMes?'disabled':''}>›</button>
+        </div>
+      </div>
+      <div class="emp-lista"><div class="emp-vacio">Cargando…</div></div>`;
+    cont.querySelector('#empMesPrev').onclick = ()=>{ mes = sumarMes(mes, -1); pintar(); };
+    cont.querySelector('#empMesNext').onclick = ()=>{ mes = sumarMes(mes, 1); pintar(); };
+    const m = await pedirMes(mes);
+    const lista = cont.querySelector('.emp-lista');
+    if(!lista) return; // se cambió de mes mientras cargaba
+    const ausenciaEn = iso=> m.ausencias.find(a=> a.inicio<=iso && (a.fin===null || iso<=a.fin));
+    const minutos = m.turnos.filter(t=> !ausenciaEn(t.fecha)).reduce((n,t)=> n + Math.round(empHorasEntre(t.inicio, t.fin)*60), 0);
+    const filas = m.turnos.map(t=>{
+      const aus = ausenciaEn(t.fecha);
+      return `<div class="emp-fila${aus ? ' emp-fila-ausente' : ''}">
+        <div class="emp-fila-fecha"><div class="emp-fila-dia">${empDiaCorto(t.fecha)}</div><div class="emp-fila-num">${empNumeroDia(t.fecha)}</div></div>
+        <div class="emp-fila-cuerpo">
+          <div class="emp-fila-principal">${aus ? esc(TIPOS_AUSENCIA[aus.tipo] ? TIPOS_AUSENCIA[aus.tipo].label : 'Ausencia') : `${t.inicio} – ${t.fin}`}</div>
+          <div class="emp-fila-secundaria">${aus ? `Turno previsto ${t.inicio} – ${t.fin} (no cuenta)` : empFranja(t.inicio)}</div>
+        </div>
+        <div class="emp-fila-cola">${aus ? '' : fmtHoras(empHorasEntre(t.inicio, t.fin))}</div>
+      </div>`;
+    }).join('');
+    const avisoParcial = m.soportaRango ? '' :
+      `<div class="emp-meses-aviso">Tu farmacia todavía solo comparte los próximos 14 días. Cuando el servidor se actualice verás aquí el mes completo.</div>`;
+    lista.innerHTML = avisoParcial + (m.turnos.length
+      ? `<div class="emp-lista-titulo">${m.turnos.length} turno${m.turnos.length===1?'':'s'} · ${fmtHoras(minutos/60)} en total</div>${filas}`
+      : `<div class="emp-vacio"><span class="emp-vacio-icono">🗓️</span>No hay turnos ${m.soportaRango ? 'este mes' : 'a la vista en este mes'}.</div>`);
+  }
+  pintar();
 }
 
 // ---------- Hoja inferior: solicitar una ausencia ----------

@@ -42,6 +42,7 @@ class ApiSimulada:
         self.notificaciones = []
         self.usuarios = []
         self.mi_horario = None
+        self.mi_horario_por_rango = None  # función (desde, hasta) -> respuesta; None = servidor antiguo
         self.llamadas = []
 
     def usuario(self):
@@ -74,6 +75,9 @@ class ApiSimulada:
         if ruta == 'usuarios':
             return ok({'usuarios': self.usuarios})
         if ruta == 'mi-horario':
+            q = dict(x.split('=') for x in req.url.split('?', 1)[1].split('&')) if '?' in req.url else {}
+            if q and self.mi_horario_por_rango is not None:
+                return ok(self.mi_horario_por_rango(q['desde'], q['hasta']))
             return ok(self.mi_horario)
         if ruta == 'backups':
             return ok({'backups': []})
